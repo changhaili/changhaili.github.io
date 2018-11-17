@@ -1,0 +1,238 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta name="generator" content="Hexo 3.8.0"><meta http-equiv="content-type" content="text/html; charset=utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport"><meta content="yes" name="apple-mobile-web-app-capable"><meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"><meta content="telephone=no" name="format-detection"><meta name="description" content="李昌海的博客--在这里写下我的技术杂念"><meta name="keywords" content="李昌海"><title>不规则图形的轮廓识别及其周长计算 | 乱石海</title><link rel="stylesheet" type="text/css" href="//fonts.neworld.org/css?family=Source+Code+Pro"><link rel="stylesheet" type="text/css" href="/css/style.css?v=2.0.1"><link rel="stylesheet" type="text/css" href="/css/highlight.css?v=2.0.1"><link rel="Shortcut Icon" href="/favicon.ico"><link rel="bookmark" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png"></head><body><div class="body_container"><div id="header"><div class="site-name"><h1 class="hidden">不规则图形的轮廓识别及其周长计算</h1><a id="logo" href="/.">乱石海</a><p class="description">李昌海的博客--在这里写下我的技术杂念</p></div><div id="nav-menu"><a href="/." class="current"><i class="fa fa-home"> 首页</i></a><a href="/archives/"><i class="fa fa-archive"> 归档</i></a><a href="/about/"><i class="fa fa-user"> 关于</i></a><a href="http://github.com/changhaili"><i class="fa fa-github"> Github</i></a></div><div id="search-form"><div id="result-mask" class="hide"></div><label><input id="search-key" type="text" autocomplete="off" placeholder="Arama"></label><div id="result-wrap" class="hide"><div id="search-result"></div></div><div class="hide"><template id="search-tpl"><div class="item"><a href="/{path}" title="{title}"><div class="title">{title}</div><div class="time">{date}</div><div class="tags">{tags}</div></a></div></template></div></div></div><div id="layout" class="layout-g"><div class="layout-l"><div class="content_container"><div class="post"><h1 class="post-title">不规则图形的轮廓识别及其周长计算</h1><div class="post-meta"><a href="/2018/02/04/edge-len/#comments" class="comment-count"><i id="changyan_count_unit" data-xid="2018/02/04/edge-len/"></i>留言,<i id="changyan_parti_unit" data-xid="2018/02/04/edge-len/"></i>参与</a><p><span class="date">Feb 04, 2018</span><span><i id="busuanzi_container_page_pv"><i id="busuanzi_value_page_pv"></i><i>点击</i></i></span></p></div><div class="post-content"><h1 id="不规则图形的轮廓识别及其周长计算"><a href="#不规则图形的轮廓识别及其周长计算" class="headerlink" title="不规则图形的轮廓识别及其周长计算"></a>不规则图形的轮廓识别及其周长计算</h1><p>源码：<a href="https://github.com/changhaili/edgelen" target="_blank" rel="noopener">https://github.com/changhaili/edgelen</a></p>
+<h2 id="1-简介"><a href="#1-简介" class="headerlink" title="1 简介"></a>1 简介</h2><p>edgelen是一个对图片中不规则图形的轮廓进行识别并计算其周长的java程序，纯Java实现。用到的算法有：</p>
+<p>​    Kmeans</p>
+<p>​    混合高斯模型</p>
+<p>​        层次聚类</p>
+<p>​    密度聚类</p>
+<p>​    线程回归</p>
+<p>​    高斯滤波，拉普拉斯滤波</p>
+<p>​    B样条插值</p>
+<p>其中：</p>
+<p>​    Kmeans和GMM都用于识别前景色和背景色</p>
+<p>​    层次聚类和密码都用于形状识别</p>
+<p>​    滤波用于平滑及获取物体边缘</p>
+<p>​    B样条插值用于计算长度</p>
+<p>该库可以在任何支持Java的程序中使用。比如可以封装在Android APP中。</p>
+<p><img src="/2018/02/04/edge-len/app1.png" alt="app1"></p>
+<p>分别在输入框中输入背景的长与宽，选择背景的颜色，待测物的颜色，点确定，进入如下页面</p>
+<p><img src="/2018/02/04/edge-len/app2.png" alt="app2"></p>
+<p>选择拍照，拍照确定后，会显示相应的长度。</p>
+<p>edgelen是根据待测物在参考背景中的位置关系以及参考背景的尺寸（长宽），计算出待测物的周长。</p>
+<h2 id="2-实现思路"><a href="#2-实现思路" class="headerlink" title="2 实现思路"></a>2 实现思路</h2><h3 id="2-1-整体思路"><a href="#2-1-整体思路" class="headerlink" title="2.1  整体思路"></a>2.1  整体思路</h3><p>下面讲述实现思路时，将以该图片为例子进行描述。</p>
+<p><img src="/2018/02/04/edge-len/naive_small.JPG" alt="naive"></p>
+<p>原始图像查看：<a href="https://github.com/changhaili/edgelen/blob/master/images/naive.JPG" target="_blank" rel="noopener">https://github.com/changhaili/edgelen/blob/master/images/naive.JPG</a></p>
+<p>参考为红底白纸，即背景为一张红纸，本示例需要识别出三张白纸的周长。</p>
+<ol>
+<li>识别背景色及前景色<ul>
+<li>去除图片的上下左右边缘，随机采样出部分像素点</li>
+<li>使用聚类根据像素点颜色值 将颜色聚成两类</li>
+<li>计算两个类簇内部像素点的平均距离，平均距离为大者所对应的颜色为背景色（本例为红色），小者为前色（本例为白色）</li>
+</ul>
+</li>
+<li>背景处理及坐标生成<ul>
+<li>使用颜色聚类的结果读取所有背景色（红色）的像素点</li>
+<li>对红包像素点进行聚类，将 聚类后的簇 按包含的像素点数量倒序，只第一个簇为背景 </li>
+<li>将背景顺时针旋转45度</li>
+<li>取出最外侧像素点，并分成四组，最原始背景的左侧边，上侧边，右侧边，下侧边</li>
+<li>将各边回归出一条直接，分别得到四条直线</li>
+<li>求四条直接的交点，即可以获取  上下左右 四个控制点</li>
+<li>将四个控制点逆时针旋转45度</li>
+<li>根据四个控制 点生成投影坐标</li>
+</ul>
+</li>
+<li>待测图形的边缘设别及曲线生成<ul>
+<li>将待测图形进行聚类</li>
+<li>根据输入的待测图形的数量返回聚类后的 簇</li>
+<li>将 聚类后的像素点进行 Laplace平滑，并获取边缘像素点</li>
+<li>使用方位角游走的方式，将边缘像素点生成多线数（曲线）</li>
+</ul>
+</li>
+<li>曲线长度计算<ul>
+<li>曲线上的像素点进行 滤波，可以使用高斯滤波或平均滤波</li>
+<li>对像素点进行多次采样</li>
+<li>对像素点使用B样条插值</li>
+<li>微分B曲线并计算 欧式距离</li>
+<li>加权平均多次采样结果，即为周长</li>
+</ul>
+</li>
+</ol>
+<p>如上例中，红纸的长宽为：1052 * 730； 单位为毫米，手工软布尺测量，稍有误差。</p>
+<p>最后识别出三张白纸的周长分别为：1015.7，519.2，1255.9 。 手工软布尺测量1015.5-， 518.5-，1254.5+，误差小于 0.2 %</p>
+<p>也可进行如下精度推理：</p>
+<ol>
+<li><p>考虑到A4 大小标准为 297* 210， 即周长为 1014，误差小于0.2%。</p>
+</li>
+<li><p>右侧两个图形是由一张A4纸剪出，则可以中间图形的周长推导出右侧图形的周长：</p>
+<p>中间白纸规则部分（即图形的左侧垂边，A4纸边）长度为139，则不规则部分为 519.2-139 = 380.2</p>
+<p>最右侧图形的周长可以计算出：1014 -139 + 380.2 = 1255.2 </p>
+<p>误差也小于 0.2%</p>
+</li>
+</ol>
+<p>当每隔一像素采样取点时，结果计算为1016.9， 519.2，1251.7，误差小于0.4%，运行速度得到了提升。</p>
+<h3 id="2-2-识别背景并建立坐标系统"><a href="#2-2-识别背景并建立坐标系统" class="headerlink" title="2.2 识别背景并建立坐标系统"></a>2.2 识别背景并建立坐标系统</h3><h4 id="2-2-1-对背景设别"><a href="#2-2-1-对背景设别" class="headerlink" title="2.2.1 对背景设别"></a>2.2.1 对背景设别</h4><p>使用颜色聚类识别出背景色和前景色</p>
+<h4 id="2-2-2-对背景进行聚类"><a href="#2-2-2-对背景进行聚类" class="headerlink" title="2.2.2 对背景进行聚类"></a>2.2.2 对背景进行聚类</h4><p>目前实现了层次聚类和密度聚类，目前密度聚类实现的速度和性能都优于层次聚类 ，但内存使用还有待优化。</p>
+<p>聚类后效果如下：</p>
+<p><img src="/2018/02/04/edge-len/back_cluster_full.jpg" alt="back_cluster"></p>
+<p>实际应该中，为了减少内存使用，背景可以读取上下左右指定宽度的像素点。</p>
+<p>因为光照等原因，会有大量的错误象素点，使得聚类会产生多个聚族，选择像素点最多的聚族为背景图像。实际情况中背景聚类拥有的象素点数量远远多于错误聚类的象素点。</p>
+<h4 id="2-2-3-计算上下左右四角"><a href="#2-2-3-计算上下左右四角" class="headerlink" title="2.2.3 计算上下左右四角"></a>2.2.3 计算上下左右四角</h4><ol>
+<li><p>将聚类后的背景（只剩下部分边框）按顺时针旋转45度，并获取最外侧像素</p>
+<p><img src="/2018/02/04/edge-len/rotate_45.jpg" alt="rotate_45"></p>
+</li>
+<li><p>按上下左右四个点，将点划分为四个数组中，即可形成 上下左右 四条边的点集合</p>
+</li>
+<li><p>对每条边所有点进行一元线性回归，即拟合出 y = kx +b 的直线，操作如下：</p>
+<p>a. 对点进行排序，先x后y；</p>
+<p>b. 删除 首尾 1/4（可调）的像素点，首尾像素点识别错误的可能性很大，如该图中缺只角；</p>
+<p>c. 对剩下的点进行一元线性回归。</p>
+</li>
+<li><p>解四个二元线性方程组，计算出四条直线的交点。这四个交点就是新的上下左右四个点坐标</p>
+<p><img src="/2018/02/04/edge-len/lines.jpg" alt="lines"></p>
+</li>
+<li><p>将计算后四个点逆时针旋转45度，即原始点的坐标</p>
+</li>
+</ol>
+<h4 id="2-2-4-根据坐标点建立投影矩阵"><a href="#2-2-4-根据坐标点建立投影矩阵" class="headerlink" title="2.2.4 根据坐标点建立投影矩阵"></a>2.2.4 根据坐标点建立投影矩阵</h4><ol>
+<li><p>用户需要输入背景的真实长度和宽度</p>
+</li>
+<li><p>目前没有考虑到透视情况。经过多次实验（从正上方，左上方，右上方等），当拍照角度不是特别倾斜的情况下，透视对最结果的影响极小。</p>
+</li>
+<li><p>实际应用中只使用了三个点，取出 左上，右上，左下  三点</p>
+<p>​</p>
+</li>
+</ol>
+<h3 id="2-3-获取待测物边界并连成多段线"><a href="#2-3-获取待测物边界并连成多段线" class="headerlink" title="2.3 获取待测物边界并连成多段线"></a>2.3 获取待测物边界并连成多段线</h3><h4 id="2-3-1-对待测物进行识别"><a href="#2-3-1-对待测物进行识别" class="headerlink" title="2.3.1 对待测物进行识别"></a>2.3.1 对待测物进行识别</h4><p>同背景识别一样，即对像素颜色进行判断。还需要判断像素点是否在背景区域内。</p>
+<p>这里待测物为三张有规则或不规则白纸片，所以设置像素颜色为白色。</p>
+<p>目前要求待测物的颜色是一样。</p>
+<h4 id="2-3-2-待测物体聚类"><a href="#2-3-2-待测物体聚类" class="headerlink" title="2.3.2 待测物体聚类"></a>2.3.2 待测物体聚类</h4><p>同背景聚类一样，可以使用密度聚类或层次聚类。</p>
+<p>考虑到图形的不规则性，聚类待测图片里，不能只取边缘像素。</p>
+<p>聚类后的效果：</p>
+<p><img src="/2018/02/04/edge-len/fore_clusters.jpg" alt="fore_clusters"></p>
+<h4 id="2-3-3-识别边界"><a href="#2-3-3-识别边界" class="headerlink" title="2.3.3 识别边界"></a>2.3.3 识别边界</h4><p>对每个聚类后图形进行Laplace滤波，识别图形的边界。</p>
+<p>下图为对第三个图形识别出来的边界：</p>
+<p><img src="/2018/02/04/edge-len/fore_edge_1.jpg" alt="fore_edge_1"></p>
+<h4 id="2-3-4-将图形边缘点生成多段线"><a href="#2-3-4-将图形边缘点生成多段线" class="headerlink" title="2.3.4 将图形边缘点生成多段线"></a>2.3.4 将图形边缘点生成多段线</h4><p>使用方位角的游走来实现。一个聚类中可以生成多条多段线，取像素点最多的进行返回。</p>
+<p>实现在后面详述</p>
+<h3 id="2-4-计算多段线长度"><a href="#2-4-计算多段线长度" class="headerlink" title="2.4 计算多段线长度"></a>2.4 计算多段线长度</h3><p>使用B样条插值：</p>
+<ol>
+<li><p>使用滤波，过滤掉锯齿。测试高斯滤波，平均滤波对结果影响极小</p>
+</li>
+<li><p>对点进行采样，分别隔0，1，…，9个点进行采样</p>
+<p>对采样后的点进行样条插值</p>
+<p>两点间插入20（可调）个中间点</p>
+<p>计算两点间欧式距离</p>
+<p>累积所的的距离和，即结果</p>
+</li>
+<li><p>进所有结果进行加权平均即 多段线长度</p>
+</li>
+</ol>
+<h2 id="3-用到的一些算法"><a href="#3-用到的一些算法" class="headerlink" title="3 用到的一些算法"></a>3 用到的一些算法</h2><h3 id="3-1-聚类"><a href="#3-1-聚类" class="headerlink" title="3.1 聚类"></a>3.1 聚类</h3><h4 id="3-1-1-Kmeans聚类"><a href="#3-1-1-Kmeans聚类" class="headerlink" title="3.1.1 Kmeans聚类"></a>3.1.1 Kmeans聚类</h4><p>用于区分前景色与背景色</p>
+<p>过程：</p>
+<ol>
+<li>去掉原始图像的边缘部分，随机采样出部分像素点</li>
+<li>将像素点的颜色组成(R,G,B)的向量，所有的像素点组织成 3*N的矩阵</li>
+<li>归一化颜色矩阵</li>
+<li>计算颜色矩阵协方差矩阵，并计算PCA，并比例占90%以上的分量</li>
+<li>将降维后的颜色矩阵使用Kmeans进行聚类，其中k=2</li>
+<li>计算聚类内部像素点的平均距离，如果平均距离大，则该类为背景色，平均距离小，则为前景色</li>
+</ol>
+<p>使用PCA的原因：颜色RGB值存在线性相关，如红色的RGB为(255, 0, 0)，白色为(255, 255,255)， 即绿色成分与蓝色成分线性相关</p>
+<p>同时也有一个假设：背景比图形分布更散</p>
+<h4 id="3-1-2-GMM聚类"><a href="#3-1-2-GMM聚类" class="headerlink" title="3.1.2 GMM聚类"></a>3.1.2 GMM聚类</h4><p>用于区分前景色与背景色</p>
+<p>过程：</p>
+<ol>
+<li>采样像素颜色值及相关的降维处理同上</li>
+<li>将降维后的颜色矩阵使用GMM进行聚类 ，其中k=2</li>
+<li>循环所有的所有的像素点（降维后）判断该点占某一聚类的概率，并将该像素点划为概率值最大所在的类别 </li>
+<li>之后也是根据方差判断颜色</li>
+</ol>
+<h4 id="3-1-3-层次聚类"><a href="#3-1-3-层次聚类" class="headerlink" title="3.1.3 层次聚类"></a>3.1.3 层次聚类</h4><p>用于识别出图形。</p>
+<p>过程：</p>
+<ol>
+<li><p>分解阶段</p>
+<p>a. 按长方形划分区域</p>
+<p>b. 如果当时区域内所有像素点都为前景色，同判断为一个 簇</p>
+<p>​    如果当时区域内所有像素点都为非前景色，同舍弃该区域</p>
+<p>​    如果当时区域内的像素点即有前景色又有非前景色，则按 左上，右上，左下，右下，四个区域继续划分区域</p>
+<p>c. 重复a, b 过程</p>
+</li>
+</ol>
+<ol start="2">
+<li><p>归并阶段</p>
+<p>采用类似于最短路径算法实现</p>
+<p>将所有的  簇 做为定义图的顶点，如果两个簇相邻，则距离为1， 否则距离为无穷</p>
+<p>可以使用Dijkstra， floyd等算法记录两个簇之间的路径，只要路径不为无穷，则它们可以划为同一 簇</p>
+<p>归并过程递归呀循环实现</p>
+</li>
+</ol>
+<h4 id="3-1-4-密度聚类"><a href="#3-1-4-密度聚类" class="headerlink" title="3.1.4 密度聚类"></a>3.1.4 密度聚类</h4><p>用于识别出图形。</p>
+<p>定义所有点都为核心对象，相邻的像素为密度直达。</p>
+<p>过程比较简单：</p>
+<ol>
+<li>循环所有像素点，找出它密度直达的像素点</li>
+<li>通过密度直达的像素点找到所有密度可达的像素点，并将其加入到集合中</li>
+<li>循环1，2过程，返回聚类像素点的集合</li>
+</ol>
+<h3 id="3-2-一元线性回归"><a href="#3-2-一元线性回归" class="headerlink" title="3.2 一元线性回归"></a>3.2 一元线性回归</h3><h3 id="3-3-多段线生成"><a href="#3-3-多段线生成" class="headerlink" title="3.3 多段线生成"></a>3.3 多段线生成</h3><p>方法如下：</p>
+<ol>
+<li><p>计算重心</p>
+</li>
+<li><p>任取一个像素计算该像素到重心的方位角</p>
+</li>
+<li><p>计算像素附近的其他像素点到重点的方位角</p>
+</li>
+<li><p>选择一个方向一致且方位角之差最小的像素做为后续点</p>
+</li>
+<li><p>循环2-4步，直到回到最初的像素点，则成环</p>
+<p>或附近没有像素点，放弃该多段线</p>
+</li>
+<li><p>重复2-5步，直到处理像素点</p>
+</li>
+<li><p>取最长的多段线（应该取围成面积最大的多线段，但没有实现）</p>
+</li>
+</ol>
+<h3 id="3-4-滤波"><a href="#3-4-滤波" class="headerlink" title="3.4 滤波"></a>3.4 滤波</h3><p>高斯滤波</p>
+<p>Laplace滤波</p>
+<h3 id="3-5-插值"><a href="#3-5-插值" class="headerlink" title="3.5 插值"></a>3.5 插值</h3><p>B样条插值</p>
+<h3 id="3-6-矩阵计算"><a href="#3-6-矩阵计算" class="headerlink" title="3.6 矩阵计算"></a>3.6 矩阵计算</h3><p>旋转</p>
+<p>投影</p>
+<h2 id="4-示例代码"><a href="#4-示例代码" class="headerlink" title="4 示例代码"></a>4 示例代码</h2><p>Maven配置了是使用Java 1.7，一些1.8的新特性无法使用</p>
+<p>以下代码在 GirthTest.java 文件中，可以指定一张新图片，运行该测试用用例</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 运行时，下面四行赋值需要修改</span></span><br><span class="line"></span><br><span class="line">String imgPath = <span class="string">"/Users/lichanghai/Mine/edgelen/images/naive.jpg"</span>;</span><br><span class="line">    </span><br><span class="line">SupportColor backColor = SupportColor.Red;</span><br><span class="line">SupportColor foreColor = SupportColor.White;</span><br><span class="line"><span class="keyword">int</span> clusterCount = <span class="number">3</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> BufferedImage img = ImageIO.read(<span class="keyword">new</span> File(imgPath));</span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">int</span> width = img.getWidth();</span><br><span class="line"><span class="keyword">final</span> <span class="keyword">int</span> height = img.getHeight();</span><br><span class="line"></span><br><span class="line"><span class="keyword">final</span> <span class="keyword">int</span>[] pixels = <span class="keyword">new</span> <span class="keyword">int</span>[width * height];</span><br><span class="line">img.getRGB(<span class="number">0</span>, <span class="number">0</span>, img.getWidth(), img.getHeight(), pixels, <span class="number">0</span>, width);</span><br><span class="line"></span><br><span class="line">ImagePixelHolder pixelHolder = <span class="keyword">new</span> ImagePixelHolder(<span class="number">1</span>, <span class="keyword">new</span> PixelImage() &#123;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">getWidth</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> width;</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">getHeight</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> height;</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">getColor</span><span class="params">(<span class="keyword">int</span> x, <span class="keyword">int</span> y)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> pixels[y * width+x];</span><br><span class="line">  &#125;</span><br><span class="line">&#125;);</span><br><span class="line"></span><br><span class="line">EdgeCurve[] curves  = LatticeUtils.getEdgeCurves(pixelHolder, <span class="number">1052</span>, <span class="number">730</span>,</span><br><span class="line">               <span class="keyword">new</span> KmeansColorSeparator(pixelHolder, <span class="number">100000</span>)</span><br><span class="line">              , clusterCount, <span class="keyword">false</span>);</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> (EdgeCurve curve : curves) &#123;</span><br><span class="line"></span><br><span class="line">  GirthResult result = curve.getGirth();</span><br><span class="line"></span><br><span class="line">  System.out.println(<span class="string">"default : "</span> + result.getRecommender());</span><br><span class="line"></span><br><span class="line">  <span class="keyword">for</span> (<span class="keyword">double</span> d : result.getOthers()) &#123;</span><br><span class="line">    System.out.println(<span class="string">"other girth : "</span> + d);</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="5-一些问题"><a href="#5-一些问题" class="headerlink" title="5 一些问题"></a>5 一些问题</h2><h3 id="5-1-透视引起的精度问题"><a href="#5-1-透视引起的精度问题" class="headerlink" title="5.1 透视引起的精度问题"></a>5.1 透视引起的精度问题</h3><ol>
+<li>目前没有考虑透视影响。为了实现方面，该项目本质是只是在平面上进行处理。透视需要考虑到三维空间的问题，比较麻烦。</li>
+<li>只要不是手机放得过于倾斜，透视带来的影响很小，几乎可以忽略。</li>
+</ol>
+<h3 id="5-2-不要旋转45度拍摄"><a href="#5-2-不要旋转45度拍摄" class="headerlink" title="5.2 不要旋转45度拍摄"></a>5.2 不要旋转45度拍摄</h3></div><div class="tags"></div><div class="post-share"><div class="bdsharebuttonbox"><span style="float:left;line-height: 28px;height: 28px;font-size:16px;font-weight:blod">分享到：</span><a href="#" data-cmd="more" class="bds_more"></a><a href="#" data-cmd="mshare" title="分享到一键分享" class="bds_mshare"></a><a href="#" data-cmd="fbook" title="分享到Facebook" class="bds_fbook"></a><a href="#" data-cmd="twi" title="分享到Twitter" class="bds_twi"></a><a href="#" data-cmd="linkedin" title="分享到linkedin" class="bds_linkedin"></a><a href="#" data-cmd="youdao" title="分享到有道云笔记" class="bds_youdao"></a><a href="#" data-cmd="evernotecn" title="分享到印象笔记" class="bds_evernotecn"></a><a href="#" data-cmd="weixin" title="分享到微信" class="bds_weixin"></a><a href="#" data-cmd="qzone" title="分享到QQ空间" class="bds_qzone"></a><a href="#" data-cmd="tsina" title="分享到新浪微博" class="bds_tsina"></a></div></div><div class="post-nav"><a href="/2016/03/30/hello-world/" class="next">Hello World</a></div><div id="comments"><div id="SOHUCS" sid="2018/02/04/edge-len/"></div></div></div></div></div><div class="layout-r"><div id="sidebar"><div class="search-pla"></div><div id="toc" class="widget"><div class="widget-title"><i class="fa fa-fei">文章目录</i></div><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#不规则图形的轮廓识别及其周长计算"><span class="toc-text">不规则图形的轮廓识别及其周长计算</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-简介"><span class="toc-text">1 简介</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-实现思路"><span class="toc-text">2 实现思路</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-整体思路"><span class="toc-text">2.1  整体思路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-识别背景并建立坐标系统"><span class="toc-text">2.2 识别背景并建立坐标系统</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#2-2-1-对背景设别"><span class="toc-text">2.2.1 对背景设别</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-2-2-对背景进行聚类"><span class="toc-text">2.2.2 对背景进行聚类</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-2-3-计算上下左右四角"><span class="toc-text">2.2.3 计算上下左右四角</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-2-4-根据坐标点建立投影矩阵"><span class="toc-text">2.2.4 根据坐标点建立投影矩阵</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-获取待测物边界并连成多段线"><span class="toc-text">2.3 获取待测物边界并连成多段线</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-1-对待测物进行识别"><span class="toc-text">2.3.1 对待测物进行识别</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-2-待测物体聚类"><span class="toc-text">2.3.2 待测物体聚类</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-3-识别边界"><span class="toc-text">2.3.3 识别边界</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-4-将图形边缘点生成多段线"><span class="toc-text">2.3.4 将图形边缘点生成多段线</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-计算多段线长度"><span class="toc-text">2.4 计算多段线长度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-用到的一些算法"><span class="toc-text">3 用到的一些算法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-聚类"><span class="toc-text">3.1 聚类</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#3-1-1-Kmeans聚类"><span class="toc-text">3.1.1 Kmeans聚类</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-1-2-GMM聚类"><span class="toc-text">3.1.2 GMM聚类</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-1-3-层次聚类"><span class="toc-text">3.1.3 层次聚类</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-1-4-密度聚类"><span class="toc-text">3.1.4 密度聚类</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-一元线性回归"><span class="toc-text">3.2 一元线性回归</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-多段线生成"><span class="toc-text">3.3 多段线生成</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-滤波"><span class="toc-text">3.4 滤波</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-插值"><span class="toc-text">3.5 插值</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-矩阵计算"><span class="toc-text">3.6 矩阵计算</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-示例代码"><span class="toc-text">4 示例代码</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-一些问题"><span class="toc-text">5 一些问题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-透视引起的精度问题"><span class="toc-text">5.1 透视引起的精度问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-不要旋转45度拍摄"><span class="toc-text">5.2 不要旋转45度拍摄</span></a></li></ol></li></ol></li></ol></div><div class="widget"><div class="widget-title"><i class="fa fa-xie"> 最新文章</i></div><ul class="post-list"><li class="post-list-item"><a class="post-list-link" href="/2018/02/04/edge-len/">不规则图形的轮廓识别及其周长计算</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/03/30/hello-world/">Hello World</a></li></ul></div><div class="widget"><div class="widget-title"><i class="fa fa-biao"> 标签</i></div><div class="tagcloud"></div></div><div class="widget"><div class="widget-title"><i class="fa fa-archive"> 归档</i></div><ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/02/">二月 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2016/03/">三月 2016</a></li></ul></div></div></div></div><a id="totop" href="#top"></a><div id="footer"><div class="footer-info"><p><a href="/baidusitemap.xml">Baidu Site Haritası</a> |  <a href="/atom.xml">订阅</a> |  <a href="/about/">关于</a></p><p>本站总访问量：<i id="busuanzi_container_site_pv"><i id="busuanzi_value_site_pv"></i></i>次</p><p><span> Copyright &copy;<a href="/." rel="nofollow">李昌海.</a></span><span> Theme by<a rel="nofollow" target="_blank" href="https://github.com/chaooo/hexo-theme-BlueLake"> BlueLake.</a></span><span> Count by<a href="http://busuanzi.ibruce.info/"> busuanzi.</a></span><span> Powered by<a rel="nofollow" target="_blank" href="https://hexo.io"> Hexo.</a></span></p></div></div></div><script src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js" async></script><script type="text/javascript" src="/js/search.json.js?v=2.0.1"></script><script type="text/javascript" src="/js/toctotop.js?v=2.0.1" async></script><script>window._bd_share_config={"common":{"bdSnsKey":{},"bdText":"","bdMini":"2","bdMiniList":["mshare","weixin","tsina","qzone","linkedin","fbook","twi","print","renren","sqq","evernotecn","bdysc","tqq","tqf","bdxc","kaixin001","tieba","douban","bdhome","thx","ibaidu","meilishuo","mogujie","diandian","huaban","duitang","hx","fx","youdao","sdo","qingbiji","people","xinhua","mail","isohu","yaolan","wealink","ty","iguba","h163","copy"],"bdPic":"","bdStyle":"1","bdSize":"16"},"share":{},"image":{"viewList":["tsina","qzone","weixin","fbook","twi","linkedin","youdao","evernotecn","mshare"],"viewText":"分享到：","viewSize":"16"},"selectShare":{"bdContainerClass":null,"bdSelectMiniList":["tsina","qzone","weixin","fbook","twi","linkedin","youdao","evernotecn","mshare"]}};with(document)0[(getElementsByTagName('head')[0]||head).appendChild(createElement('script')).src='http://bdimg.share.baidu.com/static/api/js/share.js?v=89860593.js?cdnversion='+~(-new Date()/36e5)];
+</script><script>window._config = { showScore: true };
+(function(){ 
+  var appid = 'cytVgYJFD'; 
+  var conf = 'a36f7536637a99fe345e15c94beb88b6'; 
+  var width = window.innerWidth || document.documentElement.clientWidth; 
+  var nodes =document.getElementsByTagName("head")[0]||document.head||document.documentElement;
+  if (/(Android|iPhone|iPad|iPod|iOS)/i.test(navigator.userAgent) && width < 750) {  
+      window.document.write('<script id="changyan_mobile_js" charset="utf-8" type="text/javascript" src="https://changyan.sohu.com/upload/mobile/wap-js/changyan_mobile.js?client_id=' + appid + '&conf=' + conf + '"><\/script>');
+  }
+  else { 
+    var loadJs=function(d,a){
+      var b=document.createElement("script");b.setAttribute("type","text/javascript");
+      b.setAttribute("charset","UTF-8");
+      b.setAttribute("src",d);
+      if(typeof a==="function"){if(window.attachEvent){b.onreadystatechange=function(){var e=b.readyState;if(e==="loaded"||e==="complete"){b.onreadystatechange=null;a()}}}else{b.onload=a}}
+      nodes.appendChild(b)
+    };
+    loadJs("https://changyan.sohu.com/upload/changyan.js",function(){window.changyan.api.config({appid:appid,conf:conf})}); 
+  } 
+  var loadCss = function(cssString){  
+    var style=document.createElement("style");  
+    style.setAttribute("type", "text/css");  
+    if(style.styleSheet){// IE  
+        style.styleSheet.cssText = cssString;  
+    } else {// w3c  
+        var cssText = document.createTextNode(cssString);  
+        style.appendChild(cssText);  
+    }
+    nodes.appendChild(style);
+  }
+  window.onload=function(){loadCss('.module-hot-topic,.module-cmt-float-bar{display:none!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .cbox-prompt-w span.prompt-empty-w,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-form-w .form-text-w span.text-null,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-minwidth-w div.cont-comment-w a.comment-link-w,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-minwidth-w div.cont-comment-w span.comment-text-w,#SOHUCS #SOHU_MAIN .module-cmt-footer .section-service-w div.service-wrap-w a:hover,#SOHUCS #SOHU_MAIN .module-cmt-header .section-cbox-w .block-head-w div.header-login,#SOHUCS #SOHU_MAIN .module-cmt-header .section-title-w .title-user-w .user-wrap-w span.wrap-name-w,#SOHUCS #SOHU_MAIN .module-cmt-list .action-click-gw span.click-disable-eg a em.icon-name-bg,#SOHUCS #SOHU_MAIN .module-cmt-list .block-title-gw ul li div.title-name-gw,#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .cmt-list-number .comment-number span.cy-number,#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .cmt-list-number span.comment-number,#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .type-lists li.active,#SOHUCS #SOHU_MAIN .module-cmt-list .msg-wrap-gw .wrap-action-gw .action-click-gw span a:hover,#SOHUCS #SOHU_MAIN .module-cmt-list .picture-box-gw div.box-action-gw a:hover,#SOHUCS #SOHU_MAIN .module-cmt-list .wrap-action-gw .action-click-gw span a:hover em.icon-name-bg,#SOHUCS #SOHU_MAIN .module-cmt-list .wrap-user-gw span.user-name-gw a{color:#40759b!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .post-wrap-border-t div.post-wrap-border-t-r,#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w div.post-wrap-border-l,#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w div.post-wrap-border-r{display:none!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .post-wrap-border-t div.post-wrap-border-t-l{background:#FFF!important;top:-2px!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-function-w .uploading-wrapper-dw div.wrapper-image-dw,#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w div.post-wrap-main,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-form-w div.form-text-w,#SOHUCS #SOHU_MAIN .module-cmt-header .section-cbox-w .block-head-w div.header-login,#SOHUCS #SOHU_MAIN .module-cmt-list .module-cmt-box .post-wrap-w div.post-wrap-main{border:1px solid #e6e6e6!important;border-radius:20px 20px 20px 20px;margin:0!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-issue-w .issue-btn-w a .btn-fw{width:130px!important;height:34px!important;line-height:33px!important;font-size:17px!important;background:#5483b1!important;border-radius:20px!important;color:#FFF!important;-webkit-box-shadow:0 -1px 4px #5483b1 inset;box-shadow:0 -1px 10px #5483b1 inset}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-issue-w .issue-btn-w a .btn-fw:before{content:"发表评论"}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-issue-w .issue-btn-w a:hover .btn-fw{color:#40759b!important;background:#FFF!important}#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .type-lists li{background:none!important;border-bottom:1px solid #e6e6e6}#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .type-lists li.active{border:1px solid #e6e6e6;border-radius:10px 10px 0 0;border-bottom:none}#SOHUCS #SOHU_MAIN .module-cmt-list .block-title-gw ul li .title-name-gw div.title-name-gw-tag{background:#5483b1!important;border-radius:3px}#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type div.cmt-list-border{background-color:#e6e6e6!important}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item{border:1px solid #e6e6e6!important}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item .nt-logo{text-align:center;line-height:40px;border-radius:50%!important;background:#e6e6e6!important}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item .nt-logo:before{content:"畅";font-size:22px;color:#FFF}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item a.nt-text,#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item a.nt-text i{color:#5483b1!important}#SOHUCS #SOHU_MAIN .module-cmt-header .section-title-w .title-user-w .user-wrap-w{background:#FFF!important}');};
+})();</script><script src="https://assets.changyan.sohu.com/upload/plugins/plugins.count.js"></script></body></html>

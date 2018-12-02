@@ -1,0 +1,123 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta name="generator" content="Hexo 3.8.0"><meta http-equiv="content-type" content="text/html; charset=utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport"><meta content="yes" name="apple-mobile-web-app-capable"><meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"><meta content="telephone=no" name="format-detection"><meta name="description" content="李昌海的个人博客--在这里写下我的技术杂念"><meta name="keywords" content="李昌海"><title>Tarjan算法的并行化实现 | 乱石海</title><link rel="stylesheet" type="text/css" href="//fonts.neworld.org/css?family=Source+Code+Pro"><link rel="stylesheet" type="text/css" href="/css/style.css?v=2.0.1"><link rel="stylesheet" type="text/css" href="/css/highlight.css?v=2.0.1"><link rel="Shortcut Icon" href="/favicon.ico"><link rel="bookmark" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png"></head><body><div class="body_container"><div id="header"><div class="site-name"><h1 class="hidden">Tarjan算法的并行化实现</h1><a id="logo" href="/.">乱石海</a><p class="description">李昌海的个人博客--在这里写下我的技术杂念</p></div><div id="nav-menu"><a href="/." class="current"><i class="fa fa-home"> 首页</i></a><a href="/archives/"><i class="fa fa-archive"> 归档</i></a><a href="/about/"><i class="fa fa-user"> 关于博主</i></a><a href="http://github.com/changhaili"><i class="fa fa-github"> Github</i></a></div><div id="search-form"><div id="result-mask" class="hide"></div><label><input id="search-key" type="text" autocomplete="off" placeholder="输入要搜索的关键字"></label><div id="result-wrap" class="hide"><div id="search-result"></div></div><div class="hide"><template id="search-tpl"><div class="item"><a href="/{path}" title="{title}"><div class="title">{title}</div><div class="time">{date}</div><div class="tags">{tags}</div></a></div></template></div></div></div><div id="layout" class="layout-g"><div class="layout-l"><div class="content_container"><div class="post"><h1 class="post-title">Tarjan算法的并行化实现</h1><div class="post-meta"><a href="/2017/10/06/parallel-tarjan/#comments" class="comment-count"><i id="changyan_count_unit" data-xid="2017/10/06/parallel-tarjan/"></i>留言,<i id="changyan_parti_unit" data-xid="2017/10/06/parallel-tarjan/"></i>参与</a><p><span class="date">Oct 06, 2017</span><span><i id="busuanzi_container_page_pv"><i id="busuanzi_value_page_pv"></i><i>点击</i></i></span></p></div><div class="post-content"><h1 id="Tarjan算法的并行化实现"><a href="#Tarjan算法的并行化实现" class="headerlink" title="Tarjan算法的并行化实现"></a>Tarjan算法的并行化实现</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>我们有时候有一些物品交换的需要，比如你手里有家乐福的购买券，但需要星巴克的购物券，这时候你就想如果 和其他人进行换一下，但实现中手里有星巴克优惠券而又需要家乐福购物券的人很难遇到，更多的场景 TA 可能需要家乐福的购物券但手里只有宜家的五折券等。 又或者在货币交易过程中，考虑到货币存在离岸在岸汇率差，同时在多种货币交易很难达到真正的汇率平衡，使得存在套利空间，举例来说我们先将人民币换成美元，再由美元换成日元，然后日元换成英镑，最后再换回人民币，这样最后换回的人民币数额可能会多于付出的数额（忽悠佣金，手续费等）。</p>
+<p>上述系统本质是找到一个合适的交易链环。我们可以实现这样的交易系统，并使用Tarjan算法实现这些交易的环形撮合。</p>
+<h2 id="Tarjan算法"><a href="#Tarjan算法" class="headerlink" title="Tarjan算法"></a>Tarjan算法</h2><p>比如存在交易:  (A-&gt;B)、 (B-&gt;C)、(C-&gt;D)、(D-&gt;E)、(D-&gt;B)、(F-&gt;G)、(G-&gt;H)，其中(A-&gt;B)表示希望将A换成B，并<strong>定义（A-&gt;B) 表示 顶点A 与 顶点B 通过一条有向边相连</strong>，其中-&gt;前的顶点（节点）叫换出节点，-&gt;后的顶点（节点）叫换入节点。</p>
+<p>上述定义中存在 A、B、C、D、E、F、G、H等节点，关系如下：</p>
+<p><img src="/2017/10/06/parallel-tarjan/p1.png" alt="image-20181202152824801"></p>
+<p>我们规定节点包括三种颜色，其中：</p>
+<p><strong>白色节点：</strong>节点未被访问过。</p>
+<p><strong>黑色节点：</strong>该节点已经确定无法成环，即无法成为任何一个环上的一个节点。</p>
+<p><strong>灰色节点：</strong>该节点已经被访问，但还无法确定是否能成环。</p>
+<p><strong>Tarjan的流程如下：</strong></p>
+<ol>
+<li><p>初始化所有的节点都涂成白色，表示本轮查找所有的节点都未访问过</p>
+</li>
+<li><p>从任何一个节点开始，假设我们从A节点开始，将A节点设置为灰色，并加入访问队列。</p>
+</li>
+<li><p>获取访问队列中的最后一个元素，并遍历能到达的节点</p>
+<p>3.1  如果存在灰色节点，表示该节点已经被访问过，而经过一轮深度遍历后能回到该节点，表示我们已经找到了一个环，将访问队列中从该节点后的所有节点组成一个环并添加到环集合中，返回第1步重新执行。</p>
+<p>3.2  如果只有白色节点，则随机选择一个白色节点，比如找到了B节点，则将B节点设置为灰色，并加入访问队列</p>
+<p>3.3  如果只有黑色节点或没有任何节点，则说明这队列无法形成环，将该将该元素设置为黑色，并移出队列，返回第3步</p>
+</li>
+<li><p>如果队列为空，并存在白色节点，则从其他任意白色节点重新查找，重新执行步骤3。</p>
+</li>
+<li><p>如果所有的节点都为黑色，表示本次查找结束，并没有找到任何一个环。</p>
+</li>
+</ol>
+<p>实际应用中，我们可以使用Flink或Storm等实时消费Kafka中的消息，只有获取到一个kafka消息则开始一次查找，而且每次查找都应该从(A-&gt;B)中的B节点开始查找，因为其它节点在上次查找时已经被证明：如没有添加(A-&gt;B) 是无法形成环的。</p>
+<p><strong>注意，Tarjan算法是去尝试找到一个或多个能够形成交易的环，查找过程中不用关心这个节点是由谁创建，使用Tarjan算法的外部系统需要记录每个节点有多少用户希望换出，有多少用户希望换入，而且交易的边也要记录期望的交换量。在找到环后，则形成一笔或多笔交易，并适量调整这些值，并删除交换量为0的边。</strong></p>
+<p>这里并不打算深入讲解Tarjan算法，更多Tarjan相关资料请自行百度或Google。</p>
+<h2 id="Tarjan存在的问题"><a href="#Tarjan存在的问题" class="headerlink" title="Tarjan存在的问题"></a>Tarjan存在的问题</h2><p><strong>tarjan算法存在的很大的一个问题就是无法并行化：</strong></p>
+<ol>
+<li><p>每次次查找前都要重置所有节点为白色，其它线程无法读取到正确的颜色状态。</p>
+</li>
+<li><p>找到环后再更新所影响到节点的权重及边的权重，则其它任务无法读取到正确的边或节点的权重。</p>
+</li>
+<li>更多。。。</li>
+</ol>
+<p>这些都导致我们无法在多线程或多进程的情况下使用Tarjan进行环查找。而每次Kafka消息的到达都启动一次环形查找，在单线程环下也有大量压力。当然也可以定时启动一次或消息了多少条消息才启动一次Tarjan查找，但终究没有减少每次查找时的压力。</p>
+<p>我们将Tarjan算法并行化的思想也很朴素，既然一次处理所有节点使得算法无法并行化，那为什么不将节点进行分组呢，我们每次查找环时只处理一个组里的相关节点及边。</p>
+<p><strong>我们期望组内的节点尽量相关，不同组间的节点尽量无关。</strong>那到底如何分级才能保证这一点呢？DBSCAN密码聚类算法为我们提供了一个解决该问题的思路。</p>
+<h2 id="DBSCAN"><a href="#DBSCAN" class="headerlink" title="DBSCAN"></a>DBSCAN</h2><p>DBSCAN算法是机器学习中一个很朴素的聚类算法，根据图像的密度分布的，将图形中的点划分成不同的聚类。如下图中将所有的图划分为两个聚类，并分别设置为绿色和红色。</p>
+<p><img src="/2017/10/06/parallel-tarjan/p2.png" alt=""></p>
+<p><strong>DBSCAN的一些概念（来源于：百度百科）：</strong></p>
+<p><strong>Ε邻域</strong>：给定对象半径为Ε内的区域称为该对象的Ε邻域；</p>
+<p><strong>核心对象</strong>：如果给定对象Ε邻域内的样本点数大于等于MinPts(最小点数量），则称该对象为核心对象；</p>
+<p><strong>直接密度可达</strong>：对于样本集合D，如果样本点q在p的Ε邻域内，并且p为核心对象，那么对象q从对象p直接密度可达。</p>
+<p><strong>密度可达</strong>：对于样本集合D，给定一串样本点p1,p2….pn，p= p1,q= pn,假如对象pi从pi-1直接密度可达，那么对象q从对象p密度可达。</p>
+<p><strong>密度相连</strong>：存在样本集合D中的一点o，如果对象o到对象p和对象q都是密度可达的，那么p和q密度相联。</p>
+<p><img src="/2017/10/06/parallel-tarjan/p3.png" alt=""></p>
+<p>如上图中：</p>
+<ol>
+<li><p>圆圈即E邻域；</p>
+</li>
+<li><p>E邻域内超过3个点就是核心点，如红色点；</p>
+</li>
+<li><p>单个绿点箭头为直接密度可达；</p>
+</li>
+<li><p>多个绿色箭头首尾相连，即密度可达；</p>
+</li>
+</ol>
+<h2 id="平行化实现"><a href="#平行化实现" class="headerlink" title="平行化实现"></a>平行化实现</h2><p>我们使用DBSCAN的思想进交易中的节点进行分组。</p>
+<ol>
+<li>E邻域我们定义为无限大</li>
+<li>邻域内的任何点都是核心点</li>
+<li>如果存在一个交易(A-&gt;B)，则A与B节点密度可达</li>
+</ol>
+<p>我们要做的就是从所有密度相连的节点，并使之形成多个聚类，如第一张图，则使用两个聚类：</p>
+<ol>
+<li>（A、B、C、D、E）</li>
+<li>（F、G、H）</li>
+</ol>
+<p>我们只是借助于DBSCAN的思想，但实现将有区别于DBSCAN算法，流程如下：</p>
+<ol>
+<li><p>初始化阶段做一次全量聚类，如上述分成两个聚类</p>
+</li>
+<li><p>到达一个消息</p>
+<p>2.1 如果换入换出节点都在一个聚类中，如（A-&gt;B），则需要在聚类1 中使用tarjan算法查找环。</p>
+<p>2.2 如果换入换出节点不在一个聚类中，如（A-G），则必不成环，这些需要将聚类1和2合并</p>
+</li>
+<li><p>随着时间的推移，越来越多的聚类会进行合并，但同时一个聚类中的也会有越来越多的边被删除，也就是说一个聚类中的所有节点可能并不是密度相连的，这些时需要对该聚类重新运行一次类DBSCAN算法，重新拆分该聚类。</p>
+</li>
+</ol>
+<p>这里解释一下3所说的情况，如一个聚类中存在三个节点（A,B,C) ，同时存在两条边 (A–3–&gt;B), ( B–1–&gt;C)，现在有一个交易消息(C–1–&gt;A)到来，经过Tarjan计算后删除环后的结果为，节点依然为3个(A, B,C)，但边只有一条了 (A–2–&gt;B) ，这时间就可以将 (A, B)生成一个聚类 ，（C）单独一个聚类。</p>
+<h2 id="仿DBSCAN算法的实现"><a href="#仿DBSCAN算法的实现" class="headerlink" title="仿DBSCAN算法的实现"></a>仿DBSCAN算法的实现</h2><p>我们实现的类DBSCAN聚类算法使用深度遍历实现，流程如下：</p>
+<ol>
+<li>使用Set保存聚类中的节点</li>
+<li>从任意节点开始深度遍历所有能到达的节点，并将节点添加到Set中，节点本身也将指向该Set。</li>
+<li>从其他没有遍历到的节点重新开始深度遍历，如果遍历的任何节点的set不为空，则将本轮遍历的节点添加到Set中</li>
+<li>重复第3步，则到所有节点都已经被遍历过。</li>
+</ol>
+<p><strong>真实实现代码中参杂了大量的业务逻辑，上述流程做了极大的简化。整理后将再重新梳理流程，并贴上相关代码。</strong></p>
+</div><div class="tags"><a href="/tags/算法/">算法</a><a href="/tags/DBSCAN/">DBSCAN</a><a href="/tags/Tarjan/">Tarjan</a><a href="/tags/撮合算法/">撮合算法</a></div><div class="post-share"><div class="bdsharebuttonbox"><span style="float:left;line-height: 28px;height: 28px;font-size:16px;font-weight:blod">分享到：</span><a href="#" data-cmd="more" class="bds_more"></a><a href="#" data-cmd="mshare" title="分享到一键分享" class="bds_mshare"></a><a href="#" data-cmd="fbook" title="分享到Facebook" class="bds_fbook"></a><a href="#" data-cmd="twi" title="分享到Twitter" class="bds_twi"></a><a href="#" data-cmd="linkedin" title="分享到linkedin" class="bds_linkedin"></a><a href="#" data-cmd="youdao" title="分享到有道云笔记" class="bds_youdao"></a><a href="#" data-cmd="evernotecn" title="分享到印象笔记" class="bds_evernotecn"></a><a href="#" data-cmd="weixin" title="分享到微信" class="bds_weixin"></a><a href="#" data-cmd="qzone" title="分享到QQ空间" class="bds_qzone"></a><a href="#" data-cmd="tsina" title="分享到新浪微博" class="bds_tsina"></a></div></div><div class="post-nav"><a href="/2018/02/04/edge-len/" class="pre">不规则图形的轮廓识别及其周长计算</a><a href="/2016/03/30/hello-world/" class="next">Hello World</a></div><div id="comments"><div id="SOHUCS" sid="2017/10/06/parallel-tarjan/"></div></div></div></div></div><div class="layout-r"><div id="sidebar"><div class="search-pla"></div><div id="toc" class="widget"><div class="widget-title"><i class="fa fa-fei">文章目录</i></div><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Tarjan算法的并行化实现"><span class="toc-text">Tarjan算法的并行化实现</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#背景"><span class="toc-text">背景</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Tarjan算法"><span class="toc-text">Tarjan算法</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Tarjan存在的问题"><span class="toc-text">Tarjan存在的问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#DBSCAN"><span class="toc-text">DBSCAN</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#平行化实现"><span class="toc-text">平行化实现</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#仿DBSCAN算法的实现"><span class="toc-text">仿DBSCAN算法的实现</span></a></li></ol></li></ol></div><div class="widget"><div class="widget-title"><i class="fa fa-xie"> 最新文章</i></div><ul class="post-list"><li class="post-list-item"><a class="post-list-link" href="/2018/11/30/flink-timer-queue/">Flink实时计算数据落盘方案</a></li><li class="post-list-item"><a class="post-list-link" href="/2018/11/18/blog-migrate-1/">博客迁移</a></li><li class="post-list-item"><a class="post-list-link" href="/2018/02/04/edge-len/">不规则图形的轮廓识别及其周长计算</a></li><li class="post-list-item"><a class="post-list-link" href="/2017/10/06/parallel-tarjan/">Tarjan算法的并行化实现</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/03/30/hello-world/">Hello World</a></li></ul></div><div class="widget"><div class="widget-title"><i class="fa fa-biao"> 标签</i></div><div class="tagcloud"><a href="/tags/flink/" style="font-size: 15px;">flink</a> <a href="/tags/算法/" style="font-size: 15px;">算法</a> <a href="/tags/DBSCAN/" style="font-size: 15px;">DBSCAN</a> <a href="/tags/图形处理/" style="font-size: 15px;">图形处理</a> <a href="/tags/机器学习/" style="font-size: 15px;">机器学习</a> <a href="/tags/多线程/" style="font-size: 15px;">多线程</a> <a href="/tags/背压/" style="font-size: 15px;">背压</a> <a href="/tags/双缓存/" style="font-size: 15px;">双缓存</a> <a href="/tags/Tarjan/" style="font-size: 15px;">Tarjan</a> <a href="/tags/撮合算法/" style="font-size: 15px;">撮合算法</a></div></div><div class="widget"><div class="widget-title"><i class="fa fa-archive"> 归档</i></div><ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/11/">十一月 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/02/">二月 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/10/">十月 2017</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2016/03/">三月 2016</a></li></ul></div></div></div></div><a id="totop" href="#top"></a><div id="footer"><div class="footer-info"><p><!--if theme.baidusitemap--><!--  a(href=config.root+"baidusitemap.xml")= __("baidusitemap")--><!--  |  |  --><!--if theme.feed--><!--  a(href=config.root+"atom.xml")= __("rss")--><!--  |  |  --><!--a(href=config.root+"about/")= __("about")--></p><p><span> Copyright &copy;<a href="/." rel="nofollow">李昌海.</a></span><!--span  Theme by--><!--  a(rel='nofollow', target='_blank', href='https://github.com/chaooo/hexo-theme-BlueLake')  BlueLake.--><!--if theme.busuanzi == true--><!--  span  Count by--><!--    a(href="http://busuanzi.ibruce.info/")  busuanzi.--><span> Powered by<a rel="nofollow" target="_blank" href="https://hexo.io"> Hexo.</a></span></p><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><p>本站总访问量：<i id="busuanzi_container_site_pv"><i id="busuanzi_value_site_pv"></i></i>次</p></div></div></div><script src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js" async></script><script type="text/javascript" src="/js/search.json.js?v=2.0.1"></script><script type="text/javascript" src="/js/toctotop.js?v=2.0.1" async></script><script>window._bd_share_config={"common":{"bdSnsKey":{},"bdText":"","bdMini":"2","bdMiniList":["mshare","weixin","tsina","qzone","linkedin","fbook","twi","print","renren","sqq","evernotecn","bdysc","tqq","tqf","bdxc","kaixin001","tieba","douban","bdhome","thx","ibaidu","meilishuo","mogujie","diandian","huaban","duitang","hx","fx","youdao","sdo","qingbiji","people","xinhua","mail","isohu","yaolan","wealink","ty","iguba","h163","copy"],"bdPic":"","bdStyle":"1","bdSize":"16"},"share":{},"image":{"viewList":["tsina","qzone","weixin","fbook","twi","linkedin","youdao","evernotecn","mshare"],"viewText":"分享到：","viewSize":"16"},"selectShare":{"bdContainerClass":null,"bdSelectMiniList":["tsina","qzone","weixin","fbook","twi","linkedin","youdao","evernotecn","mshare"]}};with(document)0[(getElementsByTagName('head')[0]||head).appendChild(createElement('script')).src='http://bdimg.share.baidu.com/static/api/js/share.js?v=89860593.js?cdnversion='+~(-new Date()/36e5)];
+</script><script>window._config = { showScore: true };
+(function(){ 
+  var appid = 'cytVgYJFD'; 
+  var conf = 'a36f7536637a99fe345e15c94beb88b6'; 
+  var width = window.innerWidth || document.documentElement.clientWidth; 
+  var nodes =document.getElementsByTagName("head")[0]||document.head||document.documentElement;
+  if (/(Android|iPhone|iPad|iPod|iOS)/i.test(navigator.userAgent) && width < 750) {  
+      window.document.write('<script id="changyan_mobile_js" charset="utf-8" type="text/javascript" src="https://changyan.sohu.com/upload/mobile/wap-js/changyan_mobile.js?client_id=' + appid + '&conf=' + conf + '"><\/script>');
+  }
+  else { 
+    var loadJs=function(d,a){
+      var b=document.createElement("script");b.setAttribute("type","text/javascript");
+      b.setAttribute("charset","UTF-8");
+      b.setAttribute("src",d);
+      if(typeof a==="function"){if(window.attachEvent){b.onreadystatechange=function(){var e=b.readyState;if(e==="loaded"||e==="complete"){b.onreadystatechange=null;a()}}}else{b.onload=a}}
+      nodes.appendChild(b)
+    };
+    loadJs("https://changyan.sohu.com/upload/changyan.js",function(){window.changyan.api.config({appid:appid,conf:conf})}); 
+  } 
+  var loadCss = function(cssString){  
+    var style=document.createElement("style");  
+    style.setAttribute("type", "text/css");  
+    if(style.styleSheet){// IE  
+        style.styleSheet.cssText = cssString;  
+    } else {// w3c  
+        var cssText = document.createTextNode(cssString);  
+        style.appendChild(cssText);  
+    }
+    nodes.appendChild(style);
+  }
+  window.onload=function(){loadCss('.module-hot-topic,.module-cmt-float-bar{display:none!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .cbox-prompt-w span.prompt-empty-w,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-form-w .form-text-w span.text-null,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-minwidth-w div.cont-comment-w a.comment-link-w,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-minwidth-w div.cont-comment-w span.comment-text-w,#SOHUCS #SOHU_MAIN .module-cmt-footer .section-service-w div.service-wrap-w a:hover,#SOHUCS #SOHU_MAIN .module-cmt-header .section-cbox-w .block-head-w div.header-login,#SOHUCS #SOHU_MAIN .module-cmt-header .section-title-w .title-user-w .user-wrap-w span.wrap-name-w,#SOHUCS #SOHU_MAIN .module-cmt-list .action-click-gw span.click-disable-eg a em.icon-name-bg,#SOHUCS #SOHU_MAIN .module-cmt-list .block-title-gw ul li div.title-name-gw,#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .cmt-list-number .comment-number span.cy-number,#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .cmt-list-number span.comment-number,#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .type-lists li.active,#SOHUCS #SOHU_MAIN .module-cmt-list .msg-wrap-gw .wrap-action-gw .action-click-gw span a:hover,#SOHUCS #SOHU_MAIN .module-cmt-list .picture-box-gw div.box-action-gw a:hover,#SOHUCS #SOHU_MAIN .module-cmt-list .wrap-action-gw .action-click-gw span a:hover em.icon-name-bg,#SOHUCS #SOHU_MAIN .module-cmt-list .wrap-user-gw span.user-name-gw a{color:#40759b!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .post-wrap-border-t div.post-wrap-border-t-r,#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w div.post-wrap-border-l,#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w div.post-wrap-border-r{display:none!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .post-wrap-border-t div.post-wrap-border-t-l{background:#FFF!important;top:-2px!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-function-w .uploading-wrapper-dw div.wrapper-image-dw,#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w div.post-wrap-main,#SOHUCS #SOHU_MAIN .module-cmt-float-bar .wrap-cont-w .cont-form-w div.form-text-w,#SOHUCS #SOHU_MAIN .module-cmt-header .section-cbox-w .block-head-w div.header-login,#SOHUCS #SOHU_MAIN .module-cmt-list .module-cmt-box .post-wrap-w div.post-wrap-main{border:1px solid #e6e6e6!important;border-radius:20px 20px 20px 20px;margin:0!important}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-issue-w .issue-btn-w a .btn-fw{width:130px!important;height:34px!important;line-height:33px!important;font-size:17px!important;background:#5483b1!important;border-radius:20px!important;color:#FFF!important;-webkit-box-shadow:0 -1px 4px #5483b1 inset;box-shadow:0 -1px 10px #5483b1 inset}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-issue-w .issue-btn-w a .btn-fw:before{content:"发表评论"}#SOHUCS #SOHU_MAIN .module-cmt-box .post-wrap-w .wrap-action-w .action-issue-w .issue-btn-w a:hover .btn-fw{color:#40759b!important;background:#FFF!important}#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .type-lists li{background:none!important;border-bottom:1px solid #e6e6e6}#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type .type-lists li.active{border:1px solid #e6e6e6;border-radius:10px 10px 0 0;border-bottom:none}#SOHUCS #SOHU_MAIN .module-cmt-list .block-title-gw ul li .title-name-gw div.title-name-gw-tag{background:#5483b1!important;border-radius:3px}#SOHUCS #SOHU_MAIN .module-cmt-list .cmt-list-type div.cmt-list-border{background-color:#e6e6e6!important}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item{border:1px solid #e6e6e6!important}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item .nt-logo{text-align:center;line-height:40px;border-radius:50%!important;background:#e6e6e6!important}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item .nt-logo:before{content:"畅";font-size:22px;color:#FFF}#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item a.nt-text,#SOHUCS #SOHU_MAIN .module-cmt-notice ul.nt-list li.nt-item a.nt-text i{color:#5483b1!important}#SOHUCS #SOHU_MAIN .module-cmt-header .section-title-w .title-user-w .user-wrap-w{background:#FFF!important}');};
+})();</script><script src="https://assets.changyan.sohu.com/upload/plugins/plugins.count.js"></script></body></html>
